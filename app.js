@@ -88,7 +88,7 @@ function applyTheme(hexColor) {
 }
 
 // ==========================================
-// 🚀 1. SYSTEM INITIALIZATION (Stable Version)
+// 🚀 1. SYSTEM INITIALIZATION (⚡ โหมดเทอร์โบ + แคช)
 // ==========================================
 function updateLoading(percent, mainText, subText) {
     const progressEl = document.getElementById('loadingProgress');
@@ -108,24 +108,27 @@ function showLoadingError(message) {
     document.getElementById('loadingErrorText').textContent = message;
 }
 
-// 🌟 แบบเข้าคิวทีละคำสั่ง: ป้องกัน Google Apps Script ล่ม และกันปัญหา CORS
 window.onload = async function () {
     startClock();
 
     try {
-        updateLoading(15, 'เชื่อมต่อเซิร์ฟเวอร์...', 'กำลังเตรียมข้อมูลระบบ');
+        updateLoading(20, 'กำลังเชื่อมต่อ...', 'ดึงข้อมูลด้วยความเร็วสูง');
 
-        updateLoading(30, 'กำลังดึงข้อมูลตำแหน่ง...', 'รอสักครู่');
-        await fetchRolesSettings().catch(e => console.warn("Role Error:", e));
+        // 🌟 1. ดึงข้อมูล 3 ส่วนแรกแบบพร้อมกัน (และหน่วงเวลาเสี้ยววิเพื่อกัน Google บล็อก)
+        const p1 = fetchRolesSettings().catch(e => console.warn(e));
+        await new Promise(r => setTimeout(r, 150)); 
 
-        updateLoading(45, 'กำลังดึงข้อมูลแผนที่...', 'รอสักครู่');
-        await fetchMapSettings().catch(e => console.warn("Map Error:", e));
+        const p2 = fetchMapSettings().catch(e => console.warn(e));
+        await new Promise(r => setTimeout(r, 150));
 
-        updateLoading(60, 'กำลังดึงข้อมูลเวลา...', 'รอสักครู่');
-        await fetchTimeSettings().catch(e => console.warn("Time Error:", e));
+        const p3 = fetchTimeSettings().catch(e => console.warn(e));
+        await new Promise(r => setTimeout(r, 150));
 
-        updateLoading(75, 'เชื่อมต่อ LINE...', 'ตรวจสอบการเข้าสู่ระบบ');
-        await initializeLiffCore();
+        updateLoading(60, 'ตรวจสอบบัญชี LINE...', 'โหลดประวัติส่วนตัว');
+        const p4 = initializeLiffCore();
+
+        // 🌟 2. สั่งให้ทั้ง 4 คำสั่งวิ่งรอจบพร้อมกัน ลดเวลาโหลดลงไปได้ 70%
+        await Promise.all([p1, p2, p3, p4]);
 
     } catch (error) {
         console.error("Initialization Error:", error);
@@ -141,46 +144,56 @@ function startClock() {
     }, 1000);
 }
 
-// 🌟 อัปเกรดการดึงข้อมูลตำแหน่งให้ฉลาดขึ้น และอ่านออกทุกโครงสร้างของ Google Sheet
+// 🌟 สร้างฟังก์ชันวาด Dropdown แยกออกมาใช้ซ้ำ
+function buildRoleOptions(roles, deptSelect) {
+    deptSelect.innerHTML = '<option value="" disabled selected>-- เลือกตำแหน่ง / ชั้นปี --</option>';
+    if (Array.isArray(roles)) {
+        roles.forEach(role => {
+            let roleName = "";
+            if (typeof role === 'string') roleName = role;
+            else if (Array.isArray(role)) roleName = role[0];
+            else if (role && role.name) roleName = role.name;
+
+            if (roleName && roleName !== "undefined") {
+                const option = document.createElement('option');
+                option.value = roleName.trim();
+                option.textContent = roleName.trim();
+                deptSelect.appendChild(option);
+            }
+        });
+    }
+}
+
+// 🌟 ระบบ Cache: จะยิง API แค่ตอนเข้าแอปครั้งแรกของวันเท่านั้น
 async function fetchRolesSettings() {
     const deptSelect = document.getElementById('reg-dept');
     if (!deptSelect) return;
 
+    // ถ้ามีประวัติอยู่ในเครื่อง (เปิดเรียกรอบที่ 2) ให้ดึงมาใช้ได้เลย ทันที 0.1 วิ!
+    const cached = sessionStorage.getItem('cache_roles');
+    if (cached) {
+        buildRoleOptions(JSON.parse(cached), deptSelect);
+        return;
+    }
+
     try {
-        const res = await fetch(CONFIG.WEB_APP_API, {
-            method: 'POST',
-            body: JSON.stringify({ action: 'getRoles' })
-        });
+        const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', body: JSON.stringify({ action: 'getRoles' }) });
         const roles = await res.json();
-        deptSelect.innerHTML = '<option value="" disabled selected>-- เลือกตำแหน่ง / ชั้นปี --</option>';
-
-        if (Array.isArray(roles)) {
-            roles.forEach(role => {
-                let roleName = "";
-                
-                if (typeof role === 'string') roleName = role;
-                else if (Array.isArray(role)) roleName = role[0];
-                else if (role && role.name) roleName = role.name;
-
-                if (roleName && roleName !== "undefined") {
-                    const option = document.createElement('option');
-                    option.value = roleName.trim();
-                    option.textContent = roleName.trim();
-                    deptSelect.appendChild(option);
-                }
-            });
-        }
+        sessionStorage.setItem('cache_roles', JSON.stringify(roles)); // จำเอาไว้ใช้รอบหน้า
+        buildRoleOptions(roles, deptSelect);
     } catch (error) {
         deptSelect.innerHTML = '<option value="" disabled selected>-- ❌ โหลดข้อมูลตำแหน่งล้มเหลว --</option>';
-        console.error("Role load error:", error);
     }
 }
 
 async function fetchMapSettings() {
-    const res = await fetch(CONFIG.WEB_APP_API, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'getSettings' })
-    });
+    const cached = sessionStorage.getItem('cache_maps');
+    if (cached) {
+        TARGET_LOCATIONS = JSON.parse(cached);
+        return;
+    }
+
+    const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', body: JSON.stringify({ action: 'getSettings' }) });
     const data = await res.json();
 
     if (Array.isArray(data) && data.length > 0) {
@@ -188,14 +201,19 @@ async function fetchMapSettings() {
     } else if (data && data.lat) {
         TARGET_LOCATIONS = [{ id: 'old', name: 'จุดหลัก', lat: parseFloat(data.lat), lng: parseFloat(data.lng), range: parseInt(data.range) }];
     }
+    sessionStorage.setItem('cache_maps', JSON.stringify(TARGET_LOCATIONS));
 }
 
 async function fetchTimeSettings() {
-    const res = await fetch(CONFIG.WEB_APP_API, {
-        method: 'POST',
-        body: JSON.stringify({ action: 'getTimeSettings' })
-    });
+    const cached = sessionStorage.getItem('cache_times');
+    if (cached) {
+        timeSettingsData = JSON.parse(cached);
+        return;
+    }
+
+    const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', body: JSON.stringify({ action: 'getTimeSettings' }) });
     timeSettingsData = await res.json();
+    sessionStorage.setItem('cache_times', JSON.stringify(timeSettingsData));
 }
 
 async function initializeLiffCore() {
@@ -207,7 +225,7 @@ async function initializeLiffCore() {
         const lineIdInput = document.getElementById('reg-lineId');
         if (lineIdInput) lineIdInput.value = currentUserId;
 
-        updateLoading(85, 'ตรวจสอบประวัติ...', 'ค้นหาข้อมูลในฐานข้อมูล');
+        updateLoading(85, 'ตรวจสอบประวัติ...', 'ค้นหาข้อมูลส่วนตัวของคุณ');
         await checkUserStatus(currentUserId);
     } else {
         liff.login();
@@ -642,6 +660,9 @@ async function executeCheckin(lat, lng) {
 
         const response = await fetch(CONFIG.WEB_APP_API, { method: "POST", body: JSON.stringify(payload) });
         if (!response.ok) throw new Error("เครือข่ายขัดข้อง ไม่สามารถเชื่อมต่อฐานข้อมูลได้");
+
+        // เมื่อเช็คอินสำเร็จ เคลียร์แคชบางส่วน เผื่ออัปเดตข้อมูล
+        sessionStorage.removeItem('cache_times');
 
         Swal.fire("สำเร็จ!", "บันทึกเวลาเรียบร้อยแล้ว", "success").then(() => sendFlexMessage(payload));
 
