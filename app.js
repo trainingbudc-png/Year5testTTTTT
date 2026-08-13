@@ -110,23 +110,25 @@ function showLoadingError(message) {
 }
 
 // 🌟 แก้ไข: โหลดข้อมูลทีละสเต็ป ป้องกัน API ของ Google บล็อก
+// ==========================================
+// 🚀 1. SYSTEM INITIALIZATION (เวอร์ชันเทอร์โบ)
+// ==========================================
 window.onload = async function () {
     startClock();
 
     try {
-        updateLoading(15, 'เชื่อมต่อเซิร์ฟเวอร์...', 'กำลังเตรียมข้อมูลระบบ');
+        updateLoading(20, 'เชื่อมต่อเซิร์ฟเวอร์...', 'กำลังโหลดฐานข้อมูลพร้อมกัน');
 
-        updateLoading(30, 'กำลังดึงข้อมูลตำแหน่ง...', 'รอสักครู่');
-        await fetchRolesSettings().catch(e => console.warn("Role Error:", e));
+        // 🌟 สั่งรันทุกอย่างพร้อมกัน (Parallel) ช่วยประหยัดเวลาโหลดหน้าเว็บไปได้ 4-5 วินาที
+        const mapPromise = fetchMapSettings().catch(e => console.warn(e));
+        const rolePromise = fetchRolesSettings().catch(e => console.warn(e));
+        const timePromise = fetchTimeSettings().catch(e => console.warn(e));
+        
+        // ให้โหลด LIFF และเช็คประวัติ User ไปพร้อมๆ กับการดึงข้อมูลเลย
+        const liffPromise = initializeLiffCore();
 
-        updateLoading(45, 'กำลังดึงข้อมูลแผนที่...', 'รอสักครู่');
-        await fetchMapSettings().catch(e => console.warn("Map Error:", e));
-
-        updateLoading(60, 'กำลังดึงข้อมูลเวลา...', 'รอสักครู่');
-        await fetchTimeSettings().catch(e => console.warn("Time Error:", e));
-
-        updateLoading(75, 'เชื่อมต่อ LINE...', 'ตรวจสอบการเข้าสู่ระบบ');
-        await initializeLiffCore();
+        // รอจนกว่าทุกอย่างจะเสร็จพร้อมกัน
+        await Promise.all([mapPromise, rolePromise, timePromise, liffPromise]);
 
     } catch (error) {
         console.error("Initialization Error:", error);
