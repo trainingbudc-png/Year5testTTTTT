@@ -88,7 +88,7 @@ function applyTheme(hexColor) {
 }
 
 // ==========================================
-// 🚀 1. SYSTEM INITIALIZATION (⚡ โหมดเทอร์โบ + แคช)
+// 🚀 1. SYSTEM INITIALIZATION (เข้าคิวโหลด + Cache)
 // ==========================================
 function updateLoading(percent, mainText, subText) {
     const progressEl = document.getElementById('loadingProgress');
@@ -112,23 +112,21 @@ window.onload = async function () {
     startClock();
 
     try {
-        updateLoading(20, 'กำลังเชื่อมต่อ...', 'ดึงข้อมูลด้วยความเร็วสูง');
+        updateLoading(15, 'กำลังเชื่อมต่อ...', 'จัดคิวโหลดข้อมูล');
 
-        // 🌟 1. ดึงข้อมูล 3 ส่วนแรกแบบพร้อมกัน (และหน่วงเวลาเสี้ยววิเพื่อกัน Google บล็อก)
-        const p1 = fetchRolesSettings().catch(e => console.warn(e));
-        await new Promise(r => setTimeout(r, 150)); 
-
-        const p2 = fetchMapSettings().catch(e => console.warn(e));
-        await new Promise(r => setTimeout(r, 150));
-
-        const p3 = fetchTimeSettings().catch(e => console.warn(e));
-        await new Promise(r => setTimeout(r, 150));
-
-        updateLoading(60, 'ตรวจสอบบัญชี LINE...', 'โหลดประวัติส่วนตัว');
-        const p4 = initializeLiffCore();
-
-        // 🌟 2. สั่งให้ทั้ง 4 คำสั่งวิ่งรอจบพร้อมกัน ลดเวลาโหลดลงไปได้ 70%
-        await Promise.all([p1, p2, p3, p4]);
+        // 🌟 กลับมาใช้ระบบ "เข้าคิว" (รอให้เสร็จทีละอัน) ป้องกันเซิร์ฟเวอร์ Google ตัดการเชื่อมต่อ
+        // แต่ถ้าเครื่องเคยโหลดแล้ว มันจะดึงจาก Cache ทำให้ผ่านขั้นตอนนี้ไปใน 0.1 วินาที
+        
+        await fetchRolesSettings().catch(e => console.warn(e));
+        updateLoading(35, 'ดึงข้อมูลพิกัด...', 'รอสักครู่');
+        
+        await fetchMapSettings().catch(e => console.warn(e));
+        updateLoading(55, 'ดึงข้อมูลเวลา...', 'รอสักครู่');
+        
+        await fetchTimeSettings().catch(e => console.warn(e));
+        updateLoading(75, 'เชื่อมต่อ LINE...', 'ตรวจสอบประวัติ');
+        
+        await initializeLiffCore();
 
     } catch (error) {
         console.error("Initialization Error:", error);
@@ -144,7 +142,6 @@ function startClock() {
     }, 1000);
 }
 
-// 🌟 สร้างฟังก์ชันวาด Dropdown แยกออกมาใช้ซ้ำ
 function buildRoleOptions(roles, deptSelect) {
     deptSelect.innerHTML = '<option value="" disabled selected>-- เลือกตำแหน่ง / ชั้นปี --</option>';
     if (Array.isArray(roles)) {
@@ -164,12 +161,10 @@ function buildRoleOptions(roles, deptSelect) {
     }
 }
 
-// 🌟 ระบบ Cache: จะยิง API แค่ตอนเข้าแอปครั้งแรกของวันเท่านั้น
 async function fetchRolesSettings() {
     const deptSelect = document.getElementById('reg-dept');
     if (!deptSelect) return;
 
-    // ถ้ามีประวัติอยู่ในเครื่อง (เปิดเรียกรอบที่ 2) ให้ดึงมาใช้ได้เลย ทันที 0.1 วิ!
     const cached = sessionStorage.getItem('cache_roles');
     if (cached) {
         buildRoleOptions(JSON.parse(cached), deptSelect);
@@ -179,10 +174,11 @@ async function fetchRolesSettings() {
     try {
         const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', body: JSON.stringify({ action: 'getRoles' }) });
         const roles = await res.json();
-        sessionStorage.setItem('cache_roles', JSON.stringify(roles)); // จำเอาไว้ใช้รอบหน้า
+        sessionStorage.setItem('cache_roles', JSON.stringify(roles)); 
         buildRoleOptions(roles, deptSelect);
     } catch (error) {
         deptSelect.innerHTML = '<option value="" disabled selected>-- ❌ โหลดข้อมูลตำแหน่งล้มเหลว --</option>';
+        throw error;
     }
 }
 
