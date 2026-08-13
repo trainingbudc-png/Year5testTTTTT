@@ -38,6 +38,7 @@ function loadAndApplyTheme() {
 
     fetch(CONFIG.WEB_APP_API, {
         method: 'POST',
+        redirect: "follow",
         body: JSON.stringify({ action: 'getTheme' })
     })
         .then(res => res.text())
@@ -108,18 +109,24 @@ function showLoadingError(message) {
     document.getElementById('loadingErrorText').textContent = message;
 }
 
+// 🌟 แก้ไข: โหลดข้อมูลทีละสเต็ป ป้องกัน API ของ Google บล็อก
 window.onload = async function () {
     startClock();
 
     try {
         updateLoading(15, 'เชื่อมต่อเซิร์ฟเวอร์...', 'กำลังเตรียมข้อมูลระบบ');
 
-        const mapPromise = fetchMapSettings().catch(e => console.warn(e));
-        const rolePromise = fetchRolesSettings().catch(e => console.warn(e));
-        const timePromise = fetchTimeSettings().catch(e => console.warn(e));
-        const liffPromise = initializeLiffCore();
+        updateLoading(30, 'กำลังดึงข้อมูลตำแหน่ง...', 'รอสักครู่');
+        await fetchRolesSettings().catch(e => console.warn("Role Error:", e));
 
-        await Promise.all([mapPromise, rolePromise, timePromise, liffPromise]);
+        updateLoading(45, 'กำลังดึงข้อมูลแผนที่...', 'รอสักครู่');
+        await fetchMapSettings().catch(e => console.warn("Map Error:", e));
+
+        updateLoading(60, 'กำลังดึงข้อมูลเวลา...', 'รอสักครู่');
+        await fetchTimeSettings().catch(e => console.warn("Time Error:", e));
+
+        updateLoading(75, 'เชื่อมต่อ LINE...', 'ตรวจสอบการเข้าสู่ระบบ');
+        await initializeLiffCore();
 
     } catch (error) {
         console.error("Initialization Error:", error);
@@ -135,6 +142,7 @@ function startClock() {
     }, 1000);
 }
 
+// 🌟 เพิ่ม redirect: "follow" ป้องกันข้อผิดพลาดของ Google API
 async function fetchRolesSettings() {
     const deptSelect = document.getElementById('reg-dept');
     if (!deptSelect) return;
@@ -142,6 +150,7 @@ async function fetchRolesSettings() {
     try {
         const res = await fetch(CONFIG.WEB_APP_API, {
             method: 'POST',
+            redirect: 'follow',
             body: JSON.stringify({ action: 'getRoles' })
         });
         const roles = await res.json();
@@ -159,9 +168,9 @@ async function fetchRolesSettings() {
 }
 
 async function fetchMapSettings() {
-    updateLoading(30, 'ตรวจสอบพิกัด...', 'ดาวน์โหลดตำแหน่งพื้นที่');
     const res = await fetch(CONFIG.WEB_APP_API, {
         method: 'POST',
+        redirect: 'follow',
         body: JSON.stringify({ action: 'getSettings' })
     });
     const data = await res.json();
@@ -176,13 +185,13 @@ async function fetchMapSettings() {
 async function fetchTimeSettings() {
     const res = await fetch(CONFIG.WEB_APP_API, {
         method: 'POST',
+        redirect: 'follow',
         body: JSON.stringify({ action: 'getTimeSettings' })
     });
     timeSettingsData = await res.json();
 }
 
 async function initializeLiffCore() {
-    updateLoading(45, 'เชื่อมต่อ LINE...', 'ตรวจสอบการเข้าสู่ระบบ');
     await liff.init({ liffId: CONFIG.LIFF_ID_CHECKIN });
 
     if (liff.isLoggedIn()) {
@@ -191,7 +200,7 @@ async function initializeLiffCore() {
         const lineIdInput = document.getElementById('reg-lineId');
         if (lineIdInput) lineIdInput.value = currentUserId;
 
-        updateLoading(65, 'ตรวจสอบประวัติ...', 'ค้นหาข้อมูลในฐานข้อมูล');
+        updateLoading(85, 'ตรวจสอบประวัติ...', 'ค้นหาข้อมูลในฐานข้อมูล');
         await checkUserStatus(currentUserId);
     } else {
         liff.login();
@@ -201,6 +210,7 @@ async function initializeLiffCore() {
 async function checkUserStatus(userId) {
     const response = await fetch(CONFIG.WEB_APP_API, {
         method: "POST",
+        redirect: 'follow',
         body: JSON.stringify({ action: "fetchData", source: "member", userId: userId }),
     });
 
@@ -209,7 +219,7 @@ async function checkUserStatus(userId) {
     const data = await response.json();
     const userRows = data.filter((row) => row[1] === userId);
 
-    updateLoading(90, 'จัดเตรียมหน้าจอ...', 'โหลดข้อมูลเสร็จสิ้น');
+    updateLoading(95, 'จัดเตรียมหน้าจอ...', 'โหลดข้อมูลเสร็จสิ้น');
 
     if (userRows.length > 0) {
         userRows.sort((a, b) => new Date(b[6]) - new Date(a[6]));
@@ -238,7 +248,7 @@ function switchView(viewId) {
 }
 
 // ==========================================
-// 📸 2. CAMERA (ปรับปรุงเป็น async เพื่อให้รอการตั้งค่าเสร็จสิ้น)
+// 📸 2. CAMERA 
 // ==========================================
 async function startCamera(mode) {
     activeCameraMode = mode;
@@ -266,7 +276,6 @@ async function startCamera(mode) {
     } catch (err) {
         console.warn("First camera attempt failed, trying fallback...", err);
         try {
-            // โหมดสำรองเผื่อมือถือบางรุ่นไม่รองรับ facingMode
             stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             videoEl.srcObject = stream;
             videoEl.setAttribute("playsinline", "true");
@@ -322,9 +331,8 @@ function captureOptimizedFrame(mode) {
 // ==========================================
 let capturedRegImage = null;
 
-// 🌟 รอให้กล้องขอสิทธิ์เสร็จก่อน
 async function setupRegisterView() {
-    await startCamera('reg'); // <--- ป้องกันการชนกันของ Pop-up
+    await startCamera('reg'); 
 
     const captureBtn = document.getElementById('reg-capture-btn');
     const retakeBtn = document.getElementById('reg-retake-btn');
@@ -375,7 +383,7 @@ function submitRegistration() {
         userlineId: currentUserId
     };
 
-    fetch(CONFIG.WEB_APP_API, { method: "POST", body: JSON.stringify(obj) })
+    fetch(CONFIG.WEB_APP_API, { method: "POST", redirect: 'follow', body: JSON.stringify(obj) })
         .then(() => {
             Swal.fire({ title: "สำเร็จ!", text: "ลงทะเบียนเรียบร้อยแล้ว", icon: "success", confirmButtonColor: localStorage.getItem('appThemeColor') || "#0f766e" })
                 .then(() => {
@@ -389,7 +397,6 @@ function submitRegistration() {
 // ==========================================
 // 📍 4. SMART GPS & CHECK-IN LOGIC
 // ==========================================
-// 🌟 รอให้กล้องตั้งค่าเสร็จ ค่อยเริ่มดึง GPS (แก้ปัญหา Pop-up ชนกัน)
 async function setupCheckinView() {
     document.getElementById('chk-name').textContent = currentUserData[2];
     document.getElementById('chk-details').textContent = `รหัส: ${currentUserData[3]} | ${currentUserData[4]}`;
@@ -403,7 +410,6 @@ async function setupCheckinView() {
 
     populateJobDropdown();
 
-    // 🌟 จัดคิวการทำงาน: รอกล้องให้เสร็จ -> ค่อยหาพิกัด
     await startCamera('chk');
     startBackgroundGPS();
 
@@ -479,14 +485,12 @@ function startBackgroundGPS() {
     }
 }
 
-// 🌟 ระบบ GPS แบบฉลาด (สลับแผนดาวเทียม -> เน็ตมือถือ)
 function getSmartGPSLocation() {
     return new Promise((resolve, reject) => {
         if (!navigator.geolocation) return reject(new Error("บราวเซอร์ไม่รองรับ GPS"));
 
         let isResolved = false;
 
-        // เวลาสูงสุด 15 วินาที ถ้าไม่เจอเลยจะฟ้อง Error ชัดเจน
         const masterTimeout = setTimeout(() => {
             if (!isResolved) {
                 isResolved = true;
@@ -494,7 +498,6 @@ function getSmartGPSLocation() {
             }
         }, 15000);
 
-        // 1. ลองหาพิกัดแบบแม่นยำสูง (GPS ดาวเทียม) ก่อน 6 วินาที
         navigator.geolocation.getCurrentPosition(
             (pos) => {
                 if (isResolved) return;
@@ -506,7 +509,6 @@ function getSmartGPSLocation() {
                 if (isResolved) return;
                 console.warn("GPS ดาวเทียมหาไม่เจอ สลับไปใช้สัญญาณเน็ต/Wi-Fi", err);
 
-                // 2. ถ้าหาดาวเทียมไม่เจอในตึก สลับมาใช้พิกัดจากเสาสัญญาณมือถือ (ไม่บังคับ High Accuracy)
                 navigator.geolocation.getCurrentPosition(
                     (posFallback) => {
                         if (isResolved) return;
@@ -560,7 +562,6 @@ async function processOneClickCheckin() {
             cachedLocation = { latitude: lat, longitude: lng };
         }
 
-        // 🌟 เปลี่ยนข้อความทันทีเมื่อได้พิกัดแล้ว
         Swal.fire({ title: 'กำลังบันทึกข้อมูล...', text: 'กำลังอัปโหลดรูปภาพและข้อมูล', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
         await executeCheckin(lat, lng);
@@ -575,7 +576,6 @@ async function executeCheckin(lat, lng) {
     let nearestDistance = Infinity;
     let targetLocationName = "ไม่ทราบสถานที่";
 
-    // 1. ตรวจสอบว่าอยู่ในระยะหมุดไหนบ้าง (เรียงจากบนลงล่าง)
     for (const loc of TARGET_LOCATIONS) {
         const distance = calculateDistance(lat, lng, loc.lat, loc.lng);
         if (distance < nearestDistance) nearestDistance = distance;
@@ -583,7 +583,7 @@ async function executeCheckin(lat, lng) {
         if (distance <= loc.range) {
             inRange = true;
             targetLocationName = loc.name;
-            break; // เจอหมุดแรกที่อยู่ในระยะ ให้หยุดหาและใช้ชื่อหมุดนั้นเลย
+            break; 
         }
     }
 
@@ -602,18 +602,15 @@ async function executeCheckin(lat, lng) {
             html: 'กำลังส่งข้อมูลเข้าฐานข้อมูล กรุณารอสักครู่'
         });
 
-        // 🌟 2. โหมดพิเศษ: ถ้าชนหมุดชื่อ "นอกสถานที่" หรือ "อิสระ" ให้ดึงชื่อสถานที่จริงๆ มาบันทึก
         if (targetLocationName.includes("นอกสถานที่") || targetLocationName.includes("อิสระ")) {
             try {
                 Swal.update({ html: 'กำลังดึงชื่อตำแหน่งสถานที่จริง...' });
                 const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
                 const data = await res.json();
                 if (data && data.display_name) {
-                    // ตัดให้ชื่อสั้นลงหน่อยถ้ายาวเกินไป หรือจะเก็บเต็มๆ ก็ได้
                     targetLocationName = `นอกสถานที่: ${data.display_name}`;
                 }
             } catch (e) {
-                // ถ้าเน็ตช้าดึงชื่อไม่สำเร็จ ให้บันทึกพิกัดตัวเลขไปแทน
                 targetLocationName = `นอกสถานที่ (พิกัด: ${lat.toFixed(5)}, ${lng.toFixed(5)})`;
             }
         }
@@ -633,11 +630,11 @@ async function executeCheckin(lat, lng) {
             time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
             lat: lat,
             long: lng,
-            address: targetLocationName, // 🌟 จะได้ชื่อสถานที่จริงแทนคำว่า นอกสถานที่
+            address: targetLocationName, 
             user: currentUserId
         };
 
-        const response = await fetch(CONFIG.WEB_APP_API, { method: "POST", body: JSON.stringify(payload) });
+        const response = await fetch(CONFIG.WEB_APP_API, { method: "POST", redirect: 'follow', body: JSON.stringify(payload) });
         if (!response.ok) throw new Error("เครือข่ายขัดข้อง ไม่สามารถเชื่อมต่อฐานข้อมูลได้");
 
         Swal.fire("สำเร็จ!", "บันทึกเวลาเรียบร้อยแล้ว", "success").then(() => sendFlexMessage(payload));
