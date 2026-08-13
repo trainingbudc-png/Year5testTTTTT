@@ -88,7 +88,7 @@ function applyTheme(hexColor) {
 }
 
 // ==========================================
-// 🚀 1. SYSTEM INITIALIZATION (🌟 LAZY LOADING - โหลดเร็ว 4 เท่า)
+// 🚀 1. SYSTEM INITIALIZATION
 // ==========================================
 function updateLoading(percent, mainText, subText) {
     const progressEl = document.getElementById('loadingProgress');
@@ -108,7 +108,6 @@ function showLoadingError(message) {
     document.getElementById('loadingErrorText').textContent = message;
 }
 
-// โหลดแยกทีละเส้นทาง ไม่ให้เกิดคอขวด
 window.onload = async function () {
     startClock();
     try {
@@ -144,7 +143,6 @@ async function checkUserStatus(userId) {
     const userRows = data.filter((row) => row[1] === userId);
 
     if (userRows.length > 0) {
-        // --- 🌟 กรณีผู้ใช้เก่า: ไม่โหลดตำแหน่ง ให้โหลดแค่พิกัดกับเวลา ---
         userRows.sort((a, b) => new Date(b[6]) - new Date(a[6]));
         currentUserData = userRows[0];
 
@@ -158,7 +156,6 @@ async function checkUserStatus(userId) {
         switchView('checkinView');
         setTimeout(() => { setupCheckinView(); }, 600);
     } else {
-        // --- 🌟 กรณีผู้ใช้ใหม่: โหลดแค่ตำแหน่งชั้นปี เพื่อให้ลงทะเบียน ---
         updateLoading(80, 'ข้อมูลใหม่...', 'โหลดข้อมูลชั้นปีและตำแหน่ง');
         await fetchRolesSettings().catch(e => console.warn(e));
 
@@ -195,20 +192,26 @@ function buildRoleOptions(roles, deptSelect) {
     }
 }
 
+// 🌟 แก้ไขไม่ให้ Cache จำข้อมูลที่เป็นค่าว่าง
 async function fetchRolesSettings() {
     const deptSelect = document.getElementById('reg-dept');
     if (!deptSelect) return;
 
     const cached = sessionStorage.getItem('cache_roles');
     if (cached) {
-        buildRoleOptions(JSON.parse(cached), deptSelect);
-        return;
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.length > 0) {
+            buildRoleOptions(parsed, deptSelect);
+            return;
+        }
     }
 
     try {
-        const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', body: JSON.stringify({ action: 'getRoles' }) });
+        const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', redirect: 'follow', body: JSON.stringify({ action: 'getRoles' }) });
         const roles = await res.json();
-        sessionStorage.setItem('cache_roles', JSON.stringify(roles)); 
+        if (Array.isArray(roles) && roles.length > 0) {
+            sessionStorage.setItem('cache_roles', JSON.stringify(roles)); 
+        }
         buildRoleOptions(roles, deptSelect);
     } catch (error) {
         deptSelect.innerHTML = '<option value="" disabled selected>-- ❌ โหลดข้อมูลตำแหน่งล้มเหลว --</option>';
@@ -219,31 +222,43 @@ async function fetchRolesSettings() {
 async function fetchMapSettings() {
     const cached = sessionStorage.getItem('cache_maps');
     if (cached) {
-        TARGET_LOCATIONS = JSON.parse(cached);
-        return;
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.length > 0) {
+            TARGET_LOCATIONS = parsed;
+            return;
+        }
     }
 
-    const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', body: JSON.stringify({ action: 'getSettings' }) });
+    const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', redirect: 'follow', body: JSON.stringify({ action: 'getSettings' }) });
     const data = await res.json();
 
     if (Array.isArray(data) && data.length > 0) {
         TARGET_LOCATIONS = data;
+        sessionStorage.setItem('cache_maps', JSON.stringify(TARGET_LOCATIONS));
     } else if (data && data.lat) {
         TARGET_LOCATIONS = [{ id: 'old', name: 'จุดหลัก', lat: parseFloat(data.lat), lng: parseFloat(data.lng), range: parseInt(data.range) }];
+        sessionStorage.setItem('cache_maps', JSON.stringify(TARGET_LOCATIONS));
     }
-    sessionStorage.setItem('cache_maps', JSON.stringify(TARGET_LOCATIONS));
 }
 
 async function fetchTimeSettings() {
     const cached = sessionStorage.getItem('cache_times');
     if (cached) {
-        timeSettingsData = JSON.parse(cached);
-        return;
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.length > 0) {
+            timeSettingsData = parsed;
+            return;
+        }
     }
 
-    const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', body: JSON.stringify({ action: 'getTimeSettings' }) });
-    timeSettingsData = await res.json();
-    sessionStorage.setItem('cache_times', JSON.stringify(timeSettingsData));
+    const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', redirect: 'follow', body: JSON.stringify({ action: 'getTimeSettings' }) });
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+        timeSettingsData = data;
+        sessionStorage.setItem('cache_times', JSON.stringify(timeSettingsData));
+    } else {
+        timeSettingsData = data || []; 
+    }
 }
 
 function switchView(viewId) {
@@ -417,6 +432,16 @@ async function setupCheckinView() {
         document.getElementById('chk-profile-img').src = profileImageUrl;
     } else {
         document.getElementById('chk-profile-img').src = DEFAULT_AVATAR;
+    }
+
+    // 🌟 ถ้าระบบยังไม่มีข้อมูลแผนที่หรือเวลา (กรณีคนเพิ่งสมัครใหม่) ให้ดึงข้อมูลก่อนเปิดหน้า
+    if (timeSettingsData.length === 0 || TARGET_LOCATIONS.length === 0 || TARGET_LOCATIONS[0].id === 'default') {
+        Swal.fire({ title: 'กำลังเตรียมข้อมูลลงเวลา...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        await Promise.all([
+            fetchMapSettings().catch(e => console.warn(e)),
+            fetchTimeSettings().catch(e => console.warn(e))
+        ]);
+        Swal.close();
     }
 
     populateJobDropdown();
