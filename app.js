@@ -88,7 +88,7 @@ function applyTheme(hexColor) {
 }
 
 // ==========================================
-// 🚀 1. SYSTEM INITIALIZATION (เข้าคิวโหลด + Cache)
+// 🚀 1. SYSTEM INITIALIZATION (🌟 LAZY LOADING - โหลดเร็ว 4 เท่า)
 // ==========================================
 function updateLoading(percent, mainText, subText) {
     const progressEl = document.getElementById('loadingProgress');
@@ -108,31 +108,65 @@ function showLoadingError(message) {
     document.getElementById('loadingErrorText').textContent = message;
 }
 
+// โหลดแยกทีละเส้นทาง ไม่ให้เกิดคอขวด
 window.onload = async function () {
     startClock();
-
     try {
-        updateLoading(15, 'กำลังเชื่อมต่อ...', 'จัดคิวโหลดข้อมูล');
+        updateLoading(20, 'กำลังเชื่อมต่อ...', 'ตรวจสอบบัญชีผู้ใช้ LINE');
+        await liff.init({ liffId: CONFIG.LIFF_ID_CHECKIN });
 
-        // 🌟 กลับมาใช้ระบบ "เข้าคิว" (รอให้เสร็จทีละอัน) ป้องกันเซิร์ฟเวอร์ Google ตัดการเชื่อมต่อ
-        // แต่ถ้าเครื่องเคยโหลดแล้ว มันจะดึงจาก Cache ทำให้ผ่านขั้นตอนนี้ไปใน 0.1 วินาที
-        
-        await fetchRolesSettings().catch(e => console.warn(e));
-        updateLoading(35, 'ดึงข้อมูลพิกัด...', 'รอสักครู่');
-        
-        await fetchMapSettings().catch(e => console.warn(e));
-        updateLoading(55, 'ดึงข้อมูลเวลา...', 'รอสักครู่');
-        
-        await fetchTimeSettings().catch(e => console.warn(e));
-        updateLoading(75, 'เชื่อมต่อ LINE...', 'ตรวจสอบประวัติ');
-        
-        await initializeLiffCore();
+        if (liff.isLoggedIn()) {
+            const profile = await liff.getProfile();
+            currentUserId = profile.userId;
+            const lineIdInput = document.getElementById('reg-lineId');
+            if (lineIdInput) lineIdInput.value = currentUserId;
 
+            updateLoading(40, 'ตรวจสอบประวัติ...', 'ค้นหาข้อมูลส่วนตัวของคุณ');
+            await checkUserStatus(currentUserId);
+        } else {
+            liff.login();
+        }
     } catch (error) {
         console.error("Initialization Error:", error);
-        showLoadingError(error.message || "การเชื่อมต่อเครือข่ายล้มเหลว กรุณาลองใหม่");
+        showLoadingError("ไม่สามารถเชื่อมต่อ LINE ได้ กรุณาลองใหม่");
     }
 };
+
+async function checkUserStatus(userId) {
+    const response = await fetch(CONFIG.WEB_APP_API, {
+        method: "POST",
+        body: JSON.stringify({ action: "fetchData", source: "member", userId: userId }),
+    });
+
+    if (!response.ok) throw new Error("ไม่สามารถติดต่อฐานข้อมูลได้");
+
+    const data = await response.json();
+    const userRows = data.filter((row) => row[1] === userId);
+
+    if (userRows.length > 0) {
+        // --- 🌟 กรณีผู้ใช้เก่า: ไม่โหลดตำแหน่ง ให้โหลดแค่พิกัดกับเวลา ---
+        userRows.sort((a, b) => new Date(b[6]) - new Date(a[6]));
+        currentUserData = userRows[0];
+
+        updateLoading(70, 'เตรียมหน้าจอ...', 'โหลดแผนที่และหมวดเวลา');
+        await Promise.all([
+            fetchMapSettings().catch(e => console.warn(e)),
+            fetchTimeSettings().catch(e => console.warn(e))
+        ]);
+
+        updateLoading(100, 'เสร็จสิ้น!', 'เข้าสู่ระบบลงเวลา');
+        switchView('checkinView');
+        setTimeout(() => { setupCheckinView(); }, 600);
+    } else {
+        // --- 🌟 กรณีผู้ใช้ใหม่: โหลดแค่ตำแหน่งชั้นปี เพื่อให้ลงทะเบียน ---
+        updateLoading(80, 'ข้อมูลใหม่...', 'โหลดข้อมูลชั้นปีและตำแหน่ง');
+        await fetchRolesSettings().catch(e => console.warn(e));
+
+        updateLoading(100, 'เสร็จสิ้น!', 'เข้าสู่หน้าลงทะเบียน');
+        switchView('registerView');
+        setTimeout(() => { setupRegisterView(); }, 600);
+    }
+}
 
 function startClock() {
     setInterval(() => {
@@ -210,49 +244,6 @@ async function fetchTimeSettings() {
     const res = await fetch(CONFIG.WEB_APP_API, { method: 'POST', body: JSON.stringify({ action: 'getTimeSettings' }) });
     timeSettingsData = await res.json();
     sessionStorage.setItem('cache_times', JSON.stringify(timeSettingsData));
-}
-
-async function initializeLiffCore() {
-    await liff.init({ liffId: CONFIG.LIFF_ID_CHECKIN });
-
-    if (liff.isLoggedIn()) {
-        const profile = await liff.getProfile();
-        currentUserId = profile.userId;
-        const lineIdInput = document.getElementById('reg-lineId');
-        if (lineIdInput) lineIdInput.value = currentUserId;
-
-        updateLoading(85, 'ตรวจสอบประวัติ...', 'ค้นหาข้อมูลส่วนตัวของคุณ');
-        await checkUserStatus(currentUserId);
-    } else {
-        liff.login();
-    }
-}
-
-async function checkUserStatus(userId) {
-    const response = await fetch(CONFIG.WEB_APP_API, {
-        method: "POST",
-        body: JSON.stringify({ action: "fetchData", source: "member", userId: userId }),
-    });
-
-    if (!response.ok) throw new Error("ไม่สามารถติดต่อฐานข้อมูลได้");
-
-    const data = await response.json();
-    const userRows = data.filter((row) => row[1] === userId);
-
-    updateLoading(95, 'จัดเตรียมหน้าจอ...', 'โหลดข้อมูลเสร็จสิ้น');
-
-    if (userRows.length > 0) {
-        userRows.sort((a, b) => new Date(b[6]) - new Date(a[6]));
-        currentUserData = userRows[0];
-
-        updateLoading(100, 'เสร็จสิ้น!', 'เข้าสู่ระบบลงเวลา');
-        switchView('checkinView');
-        setTimeout(() => { setupCheckinView(); }, 600);
-    } else {
-        updateLoading(100, 'เสร็จสิ้น!', 'เข้าสู่หน้าลงทะเบียน');
-        switchView('registerView');
-        setTimeout(() => { setupRegisterView(); }, 600);
-    }
 }
 
 function switchView(viewId) {
@@ -657,7 +648,6 @@ async function executeCheckin(lat, lng) {
         const response = await fetch(CONFIG.WEB_APP_API, { method: "POST", body: JSON.stringify(payload) });
         if (!response.ok) throw new Error("เครือข่ายขัดข้อง ไม่สามารถเชื่อมต่อฐานข้อมูลได้");
 
-        // เมื่อเช็คอินสำเร็จ เคลียร์แคชบางส่วน เผื่ออัปเดตข้อมูล
         sessionStorage.removeItem('cache_times');
 
         Swal.fire("สำเร็จ!", "บันทึกเวลาเรียบร้อยแล้ว", "success").then(() => sendFlexMessage(payload));
