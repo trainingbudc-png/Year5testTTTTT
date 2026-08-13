@@ -38,7 +38,6 @@ function loadAndApplyTheme() {
 
     fetch(CONFIG.WEB_APP_API, {
         method: 'POST',
-        redirect: "follow",
         body: JSON.stringify({ action: 'getTheme' })
     })
         .then(res => res.text())
@@ -89,7 +88,7 @@ function applyTheme(hexColor) {
 }
 
 // ==========================================
-// 🚀 1. SYSTEM INITIALIZATION
+// 🚀 1. SYSTEM INITIALIZATION (Stable Version)
 // ==========================================
 function updateLoading(percent, mainText, subText) {
     const progressEl = document.getElementById('loadingProgress');
@@ -109,26 +108,24 @@ function showLoadingError(message) {
     document.getElementById('loadingErrorText').textContent = message;
 }
 
-// 🌟 แก้ไข: โหลดข้อมูลทีละสเต็ป ป้องกัน API ของ Google บล็อก
-// ==========================================
-// 🚀 1. SYSTEM INITIALIZATION (เวอร์ชันเทอร์โบ)
-// ==========================================
+// 🌟 แบบเข้าคิวทีละคำสั่ง: ป้องกัน Google Apps Script ล่ม และกันปัญหา CORS
 window.onload = async function () {
     startClock();
 
     try {
-        updateLoading(20, 'เชื่อมต่อเซิร์ฟเวอร์...', 'กำลังโหลดฐานข้อมูลพร้อมกัน');
+        updateLoading(15, 'เชื่อมต่อเซิร์ฟเวอร์...', 'กำลังเตรียมข้อมูลระบบ');
 
-        // 🌟 สั่งรันทุกอย่างพร้อมกัน (Parallel) ช่วยประหยัดเวลาโหลดหน้าเว็บไปได้ 4-5 วินาที
-        const mapPromise = fetchMapSettings().catch(e => console.warn(e));
-        const rolePromise = fetchRolesSettings().catch(e => console.warn(e));
-        const timePromise = fetchTimeSettings().catch(e => console.warn(e));
-        
-        // ให้โหลด LIFF และเช็คประวัติ User ไปพร้อมๆ กับการดึงข้อมูลเลย
-        const liffPromise = initializeLiffCore();
+        updateLoading(30, 'กำลังดึงข้อมูลตำแหน่ง...', 'รอสักครู่');
+        await fetchRolesSettings().catch(e => console.warn("Role Error:", e));
 
-        // รอจนกว่าทุกอย่างจะเสร็จพร้อมกัน
-        await Promise.all([mapPromise, rolePromise, timePromise, liffPromise]);
+        updateLoading(45, 'กำลังดึงข้อมูลแผนที่...', 'รอสักครู่');
+        await fetchMapSettings().catch(e => console.warn("Map Error:", e));
+
+        updateLoading(60, 'กำลังดึงข้อมูลเวลา...', 'รอสักครู่');
+        await fetchTimeSettings().catch(e => console.warn("Time Error:", e));
+
+        updateLoading(75, 'เชื่อมต่อ LINE...', 'ตรวจสอบการเข้าสู่ระบบ');
+        await initializeLiffCore();
 
     } catch (error) {
         console.error("Initialization Error:", error);
@@ -144,8 +141,7 @@ function startClock() {
     }, 1000);
 }
 
-// 🌟 เพิ่ม redirect: "follow" ป้องกันข้อผิดพลาดของ Google API
-// 🌟 แก้ไข: ดักจับโครงสร้างข้อมูลตำแหน่งจากหลังบ้านทุกรูปแบบ
+// 🌟 อัปเกรดการดึงข้อมูลตำแหน่งให้ฉลาดขึ้น และอ่านออกทุกโครงสร้างของ Google Sheet
 async function fetchRolesSettings() {
     const deptSelect = document.getElementById('reg-dept');
     if (!deptSelect) return;
@@ -153,7 +149,6 @@ async function fetchRolesSettings() {
     try {
         const res = await fetch(CONFIG.WEB_APP_API, {
             method: 'POST',
-            redirect: 'follow',
             body: JSON.stringify({ action: 'getRoles' })
         });
         const roles = await res.json();
@@ -163,16 +158,10 @@ async function fetchRolesSettings() {
             roles.forEach(role => {
                 let roleName = "";
                 
-                // ถอดรหัสข้อมูล ไม่ว่าหลังบ้านจะส่งมาเป็นแบบไหนก็อ่านได้
-                if (typeof role === 'string') {
-                    roleName = role;
-                } else if (Array.isArray(role)) {
-                    roleName = role[0];
-                } else if (role && role.name) {
-                    roleName = role.name;
-                }
+                if (typeof role === 'string') roleName = role;
+                else if (Array.isArray(role)) roleName = role[0];
+                else if (role && role.name) roleName = role.name;
 
-                // ถ้าได้ชื่อมาแล้ว และไม่ใช่คำว่า undefined ให้สร้างตัวเลือก
                 if (roleName && roleName !== "undefined") {
                     const option = document.createElement('option');
                     option.value = roleName.trim();
@@ -190,7 +179,6 @@ async function fetchRolesSettings() {
 async function fetchMapSettings() {
     const res = await fetch(CONFIG.WEB_APP_API, {
         method: 'POST',
-        redirect: 'follow',
         body: JSON.stringify({ action: 'getSettings' })
     });
     const data = await res.json();
@@ -205,7 +193,6 @@ async function fetchMapSettings() {
 async function fetchTimeSettings() {
     const res = await fetch(CONFIG.WEB_APP_API, {
         method: 'POST',
-        redirect: 'follow',
         body: JSON.stringify({ action: 'getTimeSettings' })
     });
     timeSettingsData = await res.json();
@@ -230,7 +217,6 @@ async function initializeLiffCore() {
 async function checkUserStatus(userId) {
     const response = await fetch(CONFIG.WEB_APP_API, {
         method: "POST",
-        redirect: 'follow',
         body: JSON.stringify({ action: "fetchData", source: "member", userId: userId }),
     });
 
@@ -403,7 +389,7 @@ function submitRegistration() {
         userlineId: currentUserId
     };
 
-    fetch(CONFIG.WEB_APP_API, { method: "POST", redirect: 'follow', body: JSON.stringify(obj) })
+    fetch(CONFIG.WEB_APP_API, { method: "POST", body: JSON.stringify(obj) })
         .then(() => {
             Swal.fire({ title: "สำเร็จ!", text: "ลงทะเบียนเรียบร้อยแล้ว", icon: "success", confirmButtonColor: localStorage.getItem('appThemeColor') || "#0f766e" })
                 .then(() => {
@@ -654,7 +640,7 @@ async function executeCheckin(lat, lng) {
             user: currentUserId
         };
 
-        const response = await fetch(CONFIG.WEB_APP_API, { method: "POST", redirect: 'follow', body: JSON.stringify(payload) });
+        const response = await fetch(CONFIG.WEB_APP_API, { method: "POST", body: JSON.stringify(payload) });
         if (!response.ok) throw new Error("เครือข่ายขัดข้อง ไม่สามารถเชื่อมต่อฐานข้อมูลได้");
 
         Swal.fire("สำเร็จ!", "บันทึกเวลาเรียบร้อยแล้ว", "success").then(() => sendFlexMessage(payload));
