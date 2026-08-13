@@ -145,6 +145,7 @@ function startClock() {
 }
 
 // 🌟 เพิ่ม redirect: "follow" ป้องกันข้อผิดพลาดของ Google API
+// 🌟 แก้ไข: ดักจับโครงสร้างข้อมูลตำแหน่งจากหลังบ้านทุกรูปแบบ
 async function fetchRolesSettings() {
     const deptSelect = document.getElementById('reg-dept');
     if (!deptSelect) return;
@@ -158,14 +159,31 @@ async function fetchRolesSettings() {
         const roles = await res.json();
         deptSelect.innerHTML = '<option value="" disabled selected>-- เลือกตำแหน่ง / ชั้นปี --</option>';
 
-        roles.forEach(role => {
-            const option = document.createElement('option');
-            option.value = role.name;
-            option.textContent = role.name;
-            deptSelect.appendChild(option);
-        });
+        if (Array.isArray(roles)) {
+            roles.forEach(role => {
+                let roleName = "";
+                
+                // ถอดรหัสข้อมูล ไม่ว่าหลังบ้านจะส่งมาเป็นแบบไหนก็อ่านได้
+                if (typeof role === 'string') {
+                    roleName = role;
+                } else if (Array.isArray(role)) {
+                    roleName = role[0];
+                } else if (role && role.name) {
+                    roleName = role.name;
+                }
+
+                // ถ้าได้ชื่อมาแล้ว และไม่ใช่คำว่า undefined ให้สร้างตัวเลือก
+                if (roleName && roleName !== "undefined") {
+                    const option = document.createElement('option');
+                    option.value = roleName.trim();
+                    option.textContent = roleName.trim();
+                    deptSelect.appendChild(option);
+                }
+            });
+        }
     } catch (error) {
         deptSelect.innerHTML = '<option value="" disabled selected>-- ❌ โหลดข้อมูลตำแหน่งล้มเหลว --</option>';
+        console.error("Role load error:", error);
     }
 }
 
