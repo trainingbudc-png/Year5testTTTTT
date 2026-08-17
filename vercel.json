@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/checkin.html",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/$1"
+    }
+  ]
+}
